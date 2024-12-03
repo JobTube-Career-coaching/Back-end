@@ -17,7 +17,7 @@ app.add_middleware(
 )
 
 # YouTube Data API 키
-API_KEY = "AIzaSyB8M5Pvuy5kbaBPupU9WeRHRq_VytvgUgM"
+API_KEY = "본인 키로 대체"
 
 
 
