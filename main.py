@@ -18,7 +18,7 @@ app.add_middleware(
 )
 
 # YouTube Data API 키
-API_KEY = "AIzaSyB8M5Pvuy5kbaBPupU9WeRHRq_VytvgUgM"
+API_KEY = "본인의 키로 대체"
 
 def search_youtube_videos(keyword, max_results=5):
     """
