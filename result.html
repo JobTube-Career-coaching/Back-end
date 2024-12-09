@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>취/창업 플랫폼</title>
+    </head>
+    <body>
+        <p>결과</p>
+        {% for i in li %}
+        <li>{{i["snippet"]["title"]}}</li>
+        <image src={{i["snippet"]["thumbnails"]["default"]["url"]}}></image><br>
+        <p>{{i["snippet"]["description"]}}</p>
+        {% endfor %}
+    </body>
+</html>

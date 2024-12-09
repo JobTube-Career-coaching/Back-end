@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>취/창업 플랫폼</title>
+    </head>
+    <body>
+        <form action="/AISearch" method="post" enctype="multipart/form-data">
+            (필수)<input type="text" name="job" placeholder="취업 희망 직업 입력..." required/><br>
+            (필수)<input type="text" name="company" placeholder="취업 희망 기업 입력..." required/><br>
+            (필수)<input type="text" name="key1" placeholder="현재 취득한 지격증 입력..."required/><br>
+            (선택)<input type="text" name="key2" placeholder="그 외의 추가 정보..."/>
+            <input type="submit" value="검색하기"/>
+        </form>
+        <textarea name="returns" readonly>
+            {{response}}
+        </textarea>
+    </body>
+</html>

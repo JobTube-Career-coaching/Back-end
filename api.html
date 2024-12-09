@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8" />
+</head>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.5.0/Chart.min.js"></script>
+
+<body>
+    
+    <canvas id="bar-chart" width="30" height="20"></canvas>
+    <canvas id="bar-chart2" width="30" height="20"></canvas>
+    <canvas id="bar-chart3" width="30" height="20"></canvas>
+    <form method="get" action="/result">
+        <input type="hidden" name="Key" value="e1f825d38d74451fec26f831eabdc3ae">
+        <!-- <input type="hidden" name="Key" value="OU7Aa5bKI3fElL2xe6eU+Z9WCdjEtS+8FU0jVhHlJmWNn7wg7lCcgLRkBY5IVqj4jm7tJN1EpaOyeGd+McrXog=="> -->
+        <input type="submit">
+    </form>
+    <script>
+        var color = [];
+        var color2 = [];
+        var dynamicColors = function() {
+        var r = Math.floor(Math.random() * 255);
+        var g = Math.floor(Math.random() * 255);
+        var b = Math.floor(Math.random() * 255);
+        return "rgb(" + r + "," + g + "," + b + ")";
+        };
+        for(var i in {{dat | tojson}}){
+            color.push(dynamicColors())
+        }
+        for(var i in {{dat2 | tojson}}){
+            color2.push(dynamicColors())
+        }
+        new Chart(document.getElementById("bar-chart"), {
+            type: 'bar',
+            data: {
+                labels:{{jobs | tojson}},
+                datasets: [
+                    {
+                        label: "직무 갯수",
+                        backgroundColor: color,
+                        data: {{dat | tojson}}
+                    }
+                ]
+            },
+            options: {
+                legend: { display: false },
+                title: {
+                    display: true,
+                    text: '직무 종류별 분석'
+                }
+            }
+        });
+        new Chart(document.getElementById("bar-chart2"), {
+            type: 'bar',
+            data: {
+                labels:{{wage | tojson}},
+                datasets: [
+                    {
+                        label: "연봉",
+                        backgroundColor: color2,
+                        data: {{dat2 | tojson}}
+                    }
+                ]
+            },
+            options: {
+                legend: { display: false },
+                title: {
+                    display: true,
+                    text: '직무 연봉 분석'
+                }
+            }
+        });
+        new Chart(document.getElementById("bar-chart3"), {
+            type: 'bar',
+            data: {
+                labels:{{wlb | tojson}},
+                datasets: [
+                    {
+                        label: "미래 가능성",
+                        backgroundColor: ["#3e95cd", "#8e5ea2", "#3cba9f", "#e8c3b9", "#c45850"],
+                        data: {{dat3 | tojson}}
+                    }
+                ]
+            },
+            options: {
+                legend: { display: false },
+                title: {
+                    display: true,
+                    text: '직무 미래 가능성 분석'
+                }
+            }
+        });
+    </script>
+</body>
+
+</html>
