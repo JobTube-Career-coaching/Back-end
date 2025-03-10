@@ -34,9 +34,8 @@ app.add_middleware(
 )
 
 # 서비스 초기화
-YOUTUBE_API_KEY = "AIzaSyBqmqqFslgj9ktmWrQmmkuCgk4-p469u84"
-OPENAI_API_KEY = "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"
-
+YOUTUBE_API_KEY = "secret"
+OPENAI_API_KEY = "secret"
 
 # 서비스 초기화
 try:
