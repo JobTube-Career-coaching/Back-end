@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from youtube_service import YouTubeService
 from summary_service import SummaryService
 from job_service import JobService
@@ -14,17 +14,12 @@ import logging
 import threading
 import time
 from o_sup import *
+from uuid import uuid4
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# 환경 변수 로드
-load_dotenv()
-
 app = FastAPI()
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
 # CORS 설정
 app.add_middleware(
     CORSMiddleware,
@@ -33,6 +28,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 환경 변수 로드
+load_dotenv()
+
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 
 # 서비스 초기화
 YOUTUBE_API_KEY = "secret"
@@ -186,9 +188,20 @@ async def get_jobs(keyword: str):
     except Exception as e:
         logger.error(f"채용 정보 검색 중 오류: {e.with_traceback()}")
         raise HTTPException(status_code=500, detail=str(e))
+@app.get("/jobs_search_senior")
+async def get_jobs(keyword: str):
+    try:
+        logger.info(f"채용 정보 검색 시작: {keyword}")
+        job_listings = oldjob_service.get_job_listings_senior(keyword)
+        return JSONResponse(content={"jobs": job_listings})
+    except Exception as e:
+        logger.error(f"채용 정보 검색 중 오류: {e.with_traceback()}")
+        raise HTTPException(status_code=500, detail=str(e))
 @app.get("/jobs_senior")
 async def get_jobs_senior(id:int,keyword: str):
     try:
+        if id==8:
+            return RedirectResponse(url="http://localhost:3000/search-frontend")
         logger.info(f"채용 정보 검색 시작: {keyword}")
         url=mode_url_mapping[id]
         job_listings = oldjob_service.get_job_listings_senior(url,keyword)
@@ -302,40 +315,55 @@ def start_crawling(background_tasks: BackgroundTasks):
 
 @app.post("/start-crawling-senior-dynamic")
 def start_crawling_senior_dynamic(
-   
     background_tasks: BackgroundTasks,
-    id: int = Query(..., description="크롤링 모드 인덱스 (1~8)")
+    id: int = Query(...),
+    keyword: str = Query(None)
 ):
-    if crawl_status_senior["progress"] > 0 and not crawl_status_senior["completed"]:
-        return {"message": "이미 크롤링이 진행 중입니다."}
-    background_tasks.add_task(crawl_task_senior_dynamic, id)
-    return {"message": f"크롤링을 시작했습니다. 모드: {id}"}
+    task_id = str(uuid4())  # 고유 ID 생성
+    crawl_status_senior_map[task_id] = create_new_status()
+
+    background_tasks.add_task(crawl_task_senior_dynamic, id, keyword, task_id)
+    return {"message": f"크롤링을 시작했습니다. 모드: {id}", "task_id": task_id}
 
 @app.get("/crawl-progress-senior")
-def get_crawl_progress_senior():
-    return crawl_status_senior
+def get_crawl_progress_senior(task_id: str):
+    return crawl_status_senior_map.get(task_id, {"error": "해당 작업 ID를 찾을 수 없어요"})
 
 @app.get("/crawl-data-senior")
-def get_crawl_data_senior():
-    return {"data": crawl_status_senior["data"]}
+def get_crawl_data_senior(task_id: str):
+    status = crawl_status_senior_map.get(task_id)
+    if not status:
+        return {"error": "유효하지 않은 task_id예요 😥"}
+    return {"data": status["data"]}
+
 # 이 함수는 분산 불가(분산 시 무한 로딩)!
 # 초반 가능, 이후에 웹드라이버 문제로 인한 오류 발생.
-def crawl_task_senior_dynamic(index: int):
-    global crawl_status_senior
+def crawl_task_senior_dynamic(index: int, Keyword=None, task_id=None):
     try:
-        crawl_status_senior = {"progress": 0, "status": "크롤링 시작", "completed": False, "data": []}
-        target_url = mode_url_mapping.get(index, mode_url_mapping[1])
-        data = scrape_data_senior(progress_callback=update_progress_senior, target_url=target_url)
-        crawl_status_senior["data"] = data
-        if crawl_status_senior["progress"] != 100:
-            crawl_status_senior["progress"] = 100
-            crawl_status_senior["status"] = "크롤링 완료"
-            crawl_status_senior["completed"] = True
+        status = crawl_status_senior_map[task_id]
+        status["status"] = "크롤링 시작"
+        target_url =""
+        if index != -1:
+            target_url = mode_url_mapping.get(index)
+        else:
+            target_url = f"https://www.work24.go.kr/wk/a/b/1200/retriveDtlEmpSrchList.do?...&srcKeyword={Keyword}"
+
+        data = scrape_data_senior(
+            progress_callback=lambda p, msg: update_progress_senior(task_id, p, msg),
+            target_url=target_url
+        )
+
+        status["data"] = data
+        status["progress"] = 100
+        status["status"] = "크롤링 완료"
+        status["completed"] = True
+
     except Exception as e:
-        logger.error(f"크롤링 작업 중 오류: {e}")
-        crawl_status_senior["status"] = f"오류 발생: {e}"
-        crawl_status_senior["progress"] = -1
-        crawl_status_senior["completed"] = True
+        status["status"] = f"오류 발생: {e}"
+        status["progress"] = -1
+        status["completed"] = True
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

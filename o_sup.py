@@ -4,22 +4,27 @@ from selenium.webdriver.common.by import By
 from bs4 import BeautifulSoup
 import time
 import logging
+from uuid import uuid4
 
+crawl_status_senior_map = {}  # task_id: status dict
+def create_new_status():
+    return {
+        "progress": 0,
+        "status": "대기 중",
+        "completed": False,
+        "data": []
+    }
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-crawl_status_senior = {
-    "progress": 0,
-    "status": "대기 중",
-    "completed": False,
-    "data": []  # 실제 데이터를 저장할 곳
-}
 
-def update_progress_senior(percent, message):
-    global crawl_status_senior
-    crawl_status_senior["progress"] = percent
-    crawl_status_senior["status"] = message
-    if percent == 100 or percent == -1:
-        crawl_status_senior["completed"] = True
+def update_progress_senior(task_id, percent, message):
+    status = crawl_status_senior_map.get(task_id)
+    if status:
+        status["progress"] = percent
+        status["status"] = message
+        if percent == 100 or percent == -1:
+            status["completed"] = True
+
 def truncate_text(text, max_len=30):
     return text[:max_len] + "..." if len(text) > max_len else text
 
