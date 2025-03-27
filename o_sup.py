@@ -4,22 +4,27 @@ from selenium.webdriver.common.by import By
 from bs4 import BeautifulSoup
 import time
 import logging
+from uuid import uuid4
 
+crawl_status_senior_map = {}  # task_id: status dict
+def create_new_status():
+    return {
+        "progress": 0,
+        "status": "대기 중",
+        "completed": False,
+        "data": []
+    }
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-crawl_status_senior = {
-    "progress": 0,
-    "status": "대기 중",
-    "completed": False,
-    "data": []  # 실제 데이터를 저장할 곳
-}
 
-def update_progress_senior(percent, message):
-    global crawl_status_senior
-    crawl_status_senior["progress"] = percent
-    crawl_status_senior["status"] = message
-    if percent == 100 or percent == -1:
-        crawl_status_senior["completed"] = True
+def update_progress_senior(task_id, percent, message):
+    status = crawl_status_senior_map.get(task_id)
+    if status:
+        status["progress"] = percent
+        status["status"] = message
+        if percent == 100 or percent == -1:
+            status["completed"] = True
+
 def truncate_text(text, max_len=30):
     return text[:max_len] + "..." if len(text) > max_len else text
 
@@ -130,7 +135,7 @@ def crawl_task_senior():
 
 
 # 모드 id에 따른 URL 매핑 (총 8개)
-mode_url_mapping = {
+o_mode_url_mapping = {
     1: "https://www.work24.go.kr/wk/a/b/1200/retriveDtlEmpSrchList.do?basicSetupYn=&careerTo=&keywordJobCd=&occupation=&seqNo=&cloDateEndtParam=&payGbn=&templateInfo=&rot2WorkYn=&shsyWorkSecd=&resultCnt=10&keywordJobCont=Y&cert=&moreButtonYn=Y&minPay=&codeDepth2Info=11000&currentPageNo=1&eventNo=&mode=&major=&resrDutyExcYn=&eodwYn=&sortField=DATE&staArea=&sortOrderBy=DESC&keyword=%EA%B2%BD%EB%B9%84%7C%EB%B3%B4%EC%95%88%7C%EC%95%88%EC%A0%84&termSearchGbn=&carrEssYns=&benefitSrchAndOr=O&disableEmpHopeGbn=&actServExcYn=&keywordStaAreaNm=&maxPay=&emailApplyYn=&codeDepth1Info=11000&keywordEtcYn=&regDateStdtParam=&publDutyExcYn=&keywordJobCdSeqNo=&viewType=&exJobsCd=&templateDepthNmInfo=&region=&employGbn=&empTpGbcd=1&computerPreferential=&infaYn=&cloDateStdtParam=&siteClcd=all&searchMode=Y&birthFromYY=&indArea=&careerTypes=&subEmpHopeYn=&tlmgYn=&academicGbn=&templateDepthNoInfo=&foriegn=&entryRoute=&mealOfferClcd=&basicSetupYnChk=&station=&holidayGbn=&srcKeyword=%EA%B2%BD%EB%B9%84%7C%EB%B3%B4%EC%95%88%7C%EC%95%88%EC%A0%84&academicGbnoEdu=noEdu&enterPriseGbn=all&cloTermSearchGbn=&birthToYY=&keywordWantedTitle=Y&stationNm=&benefitGbn=&keywordFlag=&notSrcKeyword=&essCertChk=&depth2SelCode=&keywordBusiNm=&preferentialGbn=&rot3WorkYn=&regDateEndtParam=&pfMatterPreferential=B&pageIndex=1&termContractMmcnt=&careerFrom=&laborHrShortYn=#scrollLoc",
     2: ("https://www.work24.go.kr/wk/a/b/1200/retriveDtlEmpSrchList.do?basicSetupYn=&careerTo=&keywordJobCd=&occupation=&seqNo=&cloDateEndtParam=&payGbn=&templateInfo=&rot2WorkYn=&shsyWorkSecd=&resultCnt=10&keywordJobCont=Y&cert=&moreButtonYn=Y&minPay=&codeDepth2Info=11000&currentPageNo=1&eventNo=&mode=&major=&resrDutyExcYn=&eodwYn=&sortField=DATE&staArea=&sortOrderBy=DESC&keyword=%EB%8F%8C%EB%B4%84%7C%EB%B3%B5%EC%A7%80&termSearchGbn=&carrEssYns=&benefitSrchAndOr=O&disableEmpHopeGbn=&actServExcYn=&keywordStaAreaNm=&maxPay=&emailApplyYn=&codeDepth1Info=11000&keywordEtcYn=&regDateStdtParam=&publDutyExcYn=&keywordJobCdSeqNo=&viewType=&exJobsCd=&templateDepthNmInfo=&region=&employGbn=&empTpGbcd=1&computerPreferential=&infaYn=&cloDateStdtParam=&siteClcd=all&searchMode=Y&birthFromYY=&indArea=&careerTypes=&subEmpHopeYn=&tlmgYn=&academicGbn=&templateDepthNoInfo=&foriegn=&entryRoute=&mealOfferClcd=&basicSetupYnChk=&station=&holidayGbn=&srcKeyword=%EB%8F%8C%EB%B4%84%7C%EB%B3%B5%EC%A7%80&academicGbnoEdu=noEdu&enterPriseGbn=all&cloTermSearchGbn=&birthToYY=&keywordWantedTitle=Y&stationNm=&benefitGbn=&keywordFlag=&notSrcKeyword=%EB%AF%B8%ED%99%94%2C%ED%99%98%EA%B2%BD%2C%EA%B2%BD%EB%B9%84&essCertChk=&depth2SelCode=&keywordBusiNm=&preferentialGbn=&rot3WorkYn=&regDateEndtParam=&pfMatterPreferential=B&pageIndex=1&termContractMmcnt=&careerFrom=&laborHrShortYn=#scrollLoc"),
     3: "https://www.work24.go.kr/wk/a/b/1200/retriveDtlEmpSrchList.do?basicSetupYn=&careerTo=&keywordJobCd=&occupation=&seqNo=&cloDateEndtParam=&payGbn=&templateInfo=&rot2WorkYn=&shsyWorkSecd=&resultCnt=10&keywordJobCont=Y&cert=&moreButtonYn=Y&minPay=&codeDepth2Info=11000&currentPageNo=1&eventNo=&mode=&major=&resrDutyExcYn=&eodwYn=&sortField=DATE&staArea=&sortOrderBy=DESC&keyword=%EC%9A%B4%EC%A0%84%7C%EB%B0%B0%EC%86%A1%7C%EC%9D%B4%EB%8F%99&termSearchGbn=&carrEssYns=&benefitSrchAndOr=O&disableEmpHopeGbn=&actServExcYn=&keywordStaAreaNm=&maxPay=&emailApplyYn=&codeDepth1Info=11000&keywordEtcYn=&regDateStdtParam=&publDutyExcYn=&keywordJobCdSeqNo=&viewType=&exJobsCd=&templateDepthNmInfo=&region=&employGbn=&empTpGbcd=1&computerPreferential=&infaYn=&cloDateStdtParam=&siteClcd=all&searchMode=Y&birthFromYY=&indArea=&careerTypes=&subEmpHopeYn=&tlmgYn=&academicGbn=&templateDepthNoInfo=&foriegn=&entryRoute=&mealOfferClcd=&basicSetupYnChk=&station=&holidayGbn=&srcKeyword=%EC%9A%B4%EC%A0%84%7C%EB%B0%B0%EC%86%A1%7C%EC%9D%B4%EB%8F%99&academicGbnoEdu=noEdu&enterPriseGbn=all&cloTermSearchGbn=&birthToYY=&keywordWantedTitle=Y&stationNm=&benefitGbn=&keywordFlag=&notSrcKeyword=%EC%9A%94%EC%96%91%2C%EB%AF%B8%ED%99%94%2C%ED%99%98%EA%B2%BD&essCertChk=&depth2SelCode=&keywordBusiNm=&preferentialGbn=&rot3WorkYn=&regDateEndtParam=&pfMatterPreferential=B&pageIndex=1&termContractMmcnt=&careerFrom=&laborHrShortYn=#scrollLoc",  # 운전/배송/이동

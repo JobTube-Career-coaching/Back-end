@@ -4,174 +4,137 @@ from bs4 import BeautifulSoup
 import time
 import logging
 
-# 로깅 설정
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+crawl_status_disabled = {
+    "progress": 0,
+    "status": "대기 중",
+    "completed": False,
+    "data": []  # 실제 데이터를 저장할 곳
+}
 
-# 텍스트 길이 제한 함수
+def update_progress_disabled(percent, message):
+    global crawl_status_disabled
+    crawl_status_disabled["progress"] = percent
+    crawl_status_disabled["status"] = message
+    if percent == 100 or percent == -1:
+        crawl_status_disabled["completed"] = True
 def truncate_text(text, max_len=30):
-    if len(text) > max_len:
-        return text[:max_len] + "..."
-    return text
+    return text[:max_len] + "..." if len(text) > max_len else text
 
-def scrape_data(progress_callback=None):
+def scrape_data_disabled(progress_callback=None, target_url=None):
     driver = None
+    data = []
     try:
-        # 진행 상태 업데이트 (시작)
         if progress_callback:
             progress_callback(5, "웹드라이버 초기화 중...")
-        
-        logger.info("웹드라이버 초기화 중...")
-        # 웹드라이버 설정 (Chrome 기준)
         options = webdriver.ChromeOptions()
-        options.add_argument("--headless")  # 브라우저 창 없이 실행
+        options.add_argument("--headless")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
         driver = webdriver.Chrome(options=options)
-
-        # 진행 상태 업데이트
+        
         if progress_callback:
             progress_callback(15, "웹페이지 접속 중...")
+        # target_url가 없으면 기본 URL 사용
+        if not target_url:
+            target_url = "https://www.work24.go.kr/wk/a/b/1500/empList.do?searchMode=Y"
+        driver.get(target_url)
         
-        logger.info("웹페이지 접속 중...")
-        # 웹페이지 열기
-        url = "https://www.worktogether.or.kr/eduInfo/trainInfo/eduTrainInfoList.do"
-        driver.get(url)
-
-        # 진행 상태 업데이트
         if progress_callback:
             progress_callback(30, "페이지 로딩 중...")
-        
-        logger.info("페이지 로딩 중...")
-        # 페이지 로딩 대기 - 더 긴 시간 기다리기
         time.sleep(5)
-
-        # 진행 상태 업데이트
+        
         if progress_callback:
             progress_callback(50, "HTML 분석 중...")
-        
-        logger.info("HTML 분석 중...")
-        # 페이지 소스 가져오기
         html = driver.page_source
-        
-        # HTML 소스 로깅 (일부만)
-        html_preview = html[:500] + "..." if len(html) > 500 else html
-        logger.info(f"HTML 미리보기: {html_preview}")
-        
         soup = BeautifulSoup(html, "html.parser")
-
-        # 테이블 가져오기 - 더 유연한 선택자 사용
-        table = soup.select_one("#content table")
         
-        if not table:
-            logger.error("테이블을 찾을 수 없습니다.")
-            # 다른 테이블 선택자 시도
-            tables = soup.select("table")
-            logger.info(f"페이지에서 발견된 테이블 수: {len(tables)}")
-            
-            if tables:
-                # 첫 번째 테이블 사용
-                table = tables[0]
-                logger.info("첫 번째 테이블을 대신 사용합니다.")
-            else:
-                if progress_callback:
-                    progress_callback(100, "데이터를 찾을 수 없음")
-                return []
-
-        # 테이블 행 가져오기
-        rows = table.select("tbody tr")
+        # 실제 공고 데이터를 담고 있는 행 선택 (id가 'list'로 시작)
+        rows = soup.select("tr[id^='list']")
         logger.info(f"발견된 행 수: {len(rows)}")
         
         if len(rows) == 0:
-            logger.error("테이블 행을 찾을 수 없습니다.")
-            # 테이블 구조 로깅
-            logger.info(f"테이블 HTML: {table}")
-            
-            # 대체 행 선택자 시도
-            rows = table.select("tr")
-            logger.info(f"대체 선택자로 발견된 행 수: {len(rows)}")
-            
-            if len(rows) == 0:
-                if progress_callback:
-                    progress_callback(100, "데이터를 찾을 수 없음")
-                return []
+            logger.error("공고 데이터 행을 찾을 수 없습니다.")
+            if progress_callback:
+                progress_callback(100, "데이터를 찾을 수 없음")
+            return []
         
-        # 상위 행만 가져오기
-        rows = rows[:6] if len(rows) > 5 else rows
-
-        # 진행 상태 업데이트
         if progress_callback:
             progress_callback(70, "데이터 추출 중...")
-        
-        logger.info("데이터 추출 중...")
-        data = []
-        
-        # 데이터 저장
         for i, row in enumerate(rows):
             try:
-                # 각 열에서 필요한 값들 추출 - 더 안전한 접근
-                cols = row.select("td")
-                logger.info(f"행 {i+1} - 열 수: {len(cols)}")
-                
-                if len(cols) >= 4:  # 최소한 4개 이상의 열이 있어야 함
-                    category = cols[1].text.strip() if cols[1].text else "분류 없음"
-                    title = cols[2].text.strip() if cols[2].text else "제목 없음"
-                    institution = cols[3].text.strip() if cols[3].text else "기관 없음"
-                    
-                    # 링크 추출 시도 - 좀 더 안전하게
-                    link = None
-                    try:
-                        if cols[2].select_one("a"):
-                            link = cols[2].select_one("a").get("href")
-                    except Exception as e:
-                        logger.error(f"링크 추출 중 오류: {str(e)}")
-                    
-                    logger.info(f"추출된 데이터: {category}, {title[:20]}..., {institution[:20]}...")
-                    
-                    # 데이터 추가
-                    data.append({
-                        "category": truncate_text(category),
-                        "title": truncate_text(title),
-                        "institution": truncate_text(institution),
-                        "link": link
-                    })
-                else:
-                    logger.warning(f"행 {i+1}에 충분한 열이 없습니다: {len(cols)}")
-                    
-                # 개별 항목 처리 진행률 업데이트
-                if progress_callback and rows:
-                    current_progress = 70 + int((i + 1) / len(rows) * 20)  # 70%에서 90%까지
+                company_tag = row.select_one("a.cp_name")
+                title_tag = row.select_one("a.t3_sb")
+                if not title_tag:
+                    logger.warning(f"{i+1}번 행에 제목 태그가 없습니다.")
+                    continue
+                company = company_tag.text.strip() if company_tag else "회사 정보 없음"
+                title = title_tag.text.strip()
+                link = title_tag.get("href")
+                full_link = f"https://www.work24.go.kr{link}" if link else None
+                logger.info(f"[{i+1}] {title} | {company} | {full_link}")
+                data.append({
+                    "category": "공고",
+                    "title": truncate_text(title, 50),
+                    "institution": truncate_text(company, 50),
+                    "link": full_link
+                })
+                if progress_callback:
+                    current_progress = 70 + int((i+1)/len(rows)*20)
                     progress_callback(current_progress, f"데이터 {i+1}/{len(rows)} 처리 중...")
             except Exception as e:
-                logger.error(f"행 {i+1} 처리 중 오류: {str(e)}")
-                # 특정 행 처리 실패해도 계속 진행
+                logger.error(f"{i+1}번 행 처리 중 오류: {e}")
                 continue
         
-        # 진행 상태 업데이트 (완료)
         if progress_callback:
             progress_callback(95, "웹드라이버 정리 중...")
-        
-        logger.info("웹드라이버 정리 중...")
-        # 드라이버 종료
         driver.quit()
-        driver = None
-
-        # 진행 상태 업데이트 (완전 완료)
         if progress_callback:
             progress_callback(100, f"크롤링 완료 - {len(data)}개 항목 찾음")
-        
         logger.info(f"크롤링 완료 - {len(data)}개 항목 찾음")
         return data
-        
     except Exception as e:
-        logger.error(f"크롤링 중 오류 발생: {str(e)}")
+        logger.error(f"크롤링 중 오류 발생: {e}")
         if progress_callback:
-            progress_callback(-1, f"오류 발생: {str(e)}")
-        # 오류가 발생해도 드라이버를 종료하려고 시도
+            progress_callback(-1, f"오류 발생: {e}")
         try:
             if driver:
                 driver.quit()
         except:
             pass
-        # 빈 리스트 반환
         return []
+
+def crawl_task_disabled():
+    global crawl_status_disabled
+    try:
+        crawl_status_disabled["progress"] = 0
+        crawl_status_disabled["status"] = "크롤링 시작"
+        crawl_status_disabled["completed"] = False
+        crawl_status_disabled["data"] = []
+
+        data = scrape_data_disabled(progress_callback=update_progress_disabled)
+        crawl_status_disabled["data"] = data
+
+        if crawl_status_disabled["progress"] != 100:
+            crawl_status_disabled["progress"] = 100
+            crawl_status_disabled["status"] = "크롤링 완료"
+            crawl_status_disabled["completed"] = True
+    except Exception as e:
+        logger.error(f"크롤링 작업 중 오류: {str(e)}")
+        crawl_status_disabled["status"] = f"오류 발생: {str(e)}"
+        crawl_status_disabled["progress"] = -1
+        crawl_status_disabled["completed"] = True
+
+
+# 모드 id에 따른 URL 매핑 (총 8개)
+d_mode_url_mapping = {
+    1: "https://www.work24.go.kr/wk/a/b/1200/retriveDtlEmpSrchList.do?basicSetupYn=&careerTo=&keywordJobCd=&occupation=&seqNo=&cloDateEndtParam=&payGbn=&templateInfo=&rot2WorkYn=&shsyWorkSecd=&resultCnt=10&keywordJobCont=Y&cert=&moreButtonYn=Y&minPay=&codeDepth2Info=11000&currentPageNo=1&eventNo=&mode=&major=&resrDutyExcYn=&eodwYn=&sortField=DATE&staArea=&sortOrderBy=DESC&keyword=%EA%B2%BD%EB%B9%84%7C%EB%B3%B4%EC%95%88%7C%EC%95%88%EC%A0%84&termSearchGbn=&carrEssYns=&benefitSrchAndOr=O&disableEmpHopeGbn=Y%2CD&actServExcYn=&keywordStaAreaNm=&maxPay=&emailApplyYn=&codeDepth1Info=11000&keywordEtcYn=&regDateStdtParam=&publDutyExcYn=&keywordJobCdSeqNo=&viewType=&exJobsCd=&templateDepthNmInfo=&region=&employGbn=&empTpGbcd=1&computerPreferential=&infaYn=&cloDateStdtParam=&siteClcd=all&searchMode=Y&birthFromYY=&indArea=&careerTypes=&subEmpHopeYn=&tlmgYn=&academicGbn=&templateDepthNoInfo=&foriegn=&entryRoute=&mealOfferClcd=&basicSetupYnChk=&station=&holidayGbn=&srcKeyword=%EA%B2%BD%EB%B9%84%7C%EB%B3%B4%EC%95%88%7C%EC%95%88%EC%A0%84&academicGbnoEdu=noEdu&enterPriseGbn=&cloTermSearchGbn=&birthToYY=&keywordWantedTitle=Y&stationNm=&benefitGbn=&keywordFlag=&notSrcKeyword=&essCertChk=&depth2SelCode=&keywordBusiNm=&preferentialGbn=&rot3WorkYn=&regDateEndtParam=&pfMatterPreferential=&pageIndex=1&termContractMmcnt=&careerFrom=&laborHrShortYn=#scrollLoc",
+    2: "https://www.work24.go.kr/wk/a/b/1200/retriveDtlEmpSrchList.do?basicSetupYn=&careerTo=&keywordJobCd=&occupation=&seqNo=&cloDateEndtParam=&payGbn=&templateInfo=&rot2WorkYn=&shsyWorkSecd=&resultCnt=10&keywordJobCont=Y&cert=&moreButtonYn=Y&minPay=&codeDepth2Info=11000&currentPageNo=1&eventNo=&mode=&major=&resrDutyExcYn=&eodwYn=&sortField=DATE&staArea=&sortOrderBy=DESC&keyword=%EA%B2%BD%EB%B9%84%7C%EB%B3%B4%EC%95%88%7C%EC%95%88%EC%A0%84&termSearchGbn=&carrEssYns=&benefitSrchAndOr=O&disableEmpHopeGbn=Y%2CD&actServExcYn=&keywordStaAreaNm=&maxPay=&emailApplyYn=&codeDepth1Info=11000&keywordEtcYn=&regDateStdtParam=&publDutyExcYn=&keywordJobCdSeqNo=&viewType=&exJobsCd=&templateDepthNmInfo=&region=&employGbn=&empTpGbcd=1&computerPreferential=&infaYn=&cloDateStdtParam=&siteClcd=all&searchMode=Y&birthFromYY=&indArea=&careerTypes=&subEmpHopeYn=&tlmgYn=&academicGbn=&templateDepthNoInfo=&foriegn=&entryRoute=&mealOfferClcd=&basicSetupYnChk=&station=&holidayGbn=&srcKeyword=%EB%8F%8C%EB%B4%84%7C%EB%B3%B5%EC%A7%80%7C%EA%B5%90%EC%9C%A1&academicGbnoEdu=noEdu&enterPriseGbn=&cloTermSearchGbn=&birthToYY=&keywordWantedTitle=Y&stationNm=&benefitGbn=&keywordFlag=&notSrcKeyword=&essCertChk=&depth2SelCode=&keywordBusiNm=&preferentialGbn=&rot3WorkYn=&regDateEndtParam=&pfMatterPreferential=&pageIndex=1&termContractMmcnt=&careerFrom=&laborHrShortYn=#scrollLoc",
+    3: "https://www.work24.go.kr/wk/a/b/1200/retriveDtlEmpSrchList.do?basicSetupYn=&careerTo=&keywordJobCd=&occupation=&seqNo=&cloDateEndtParam=&payGbn=&templateInfo=&rot2WorkYn=&shsyWorkSecd=&resultCnt=10&keywordJobCont=Y&cert=&moreButtonYn=Y&minPay=&codeDepth2Info=11000&currentPageNo=1&eventNo=&mode=&major=&resrDutyExcYn=&eodwYn=&sortField=DATE&staArea=&sortOrderBy=DESC&keyword=%EB%8F%8C%EB%B4%84%7C%EB%B3%B5%EC%A7%80%7C%EA%B5%90%EC%9C%A1&termSearchGbn=&carrEssYns=&benefitSrchAndOr=O&disableEmpHopeGbn=Y%2CD&actServExcYn=&keywordStaAreaNm=&maxPay=&emailApplyYn=&codeDepth1Info=11000&keywordEtcYn=&regDateStdtParam=&publDutyExcYn=&keywordJobCdSeqNo=&viewType=&exJobsCd=&templateDepthNmInfo=&region=&employGbn=&empTpGbcd=1&computerPreferential=&infaYn=&cloDateStdtParam=&siteClcd=all&searchMode=Y&birthFromYY=&indArea=&careerTypes=&subEmpHopeYn=&tlmgYn=&academicGbn=&templateDepthNoInfo=&foriegn=&entryRoute=&mealOfferClcd=&basicSetupYnChk=&station=&holidayGbn=&srcKeyword=%EC%9A%B4%EC%A0%84%7C%EB%B0%B0%EC%86%A1%7C%EC%9D%B4%EB%8F%99&academicGbnoEdu=noEdu&enterPriseGbn=&cloTermSearchGbn=&birthToYY=&keywordWantedTitle=Y&stationNm=&benefitGbn=&keywordFlag=&notSrcKeyword=&essCertChk=&depth2SelCode=&keywordBusiNm=&preferentialGbn=&rot3WorkYn=&regDateEndtParam=&pfMatterPreferential=&pageIndex=1&termContractMmcnt=&careerFrom=&laborHrShortYn=#scrollLoc",
+    4: "https://www.work24.go.kr/wk/a/b/1200/retriveDtlEmpSrchList.do?basicSetupYn=&careerTo=&keywordJobCd=&occupation=&seqNo=&cloDateEndtParam=&payGbn=&templateInfo=&rot2WorkYn=&shsyWorkSecd=&resultCnt=10&keywordJobCont=Y&cert=&moreButtonYn=Y&minPay=&codeDepth2Info=11000&currentPageNo=1&eventNo=&mode=&major=&resrDutyExcYn=&eodwYn=&sortField=DATE&staArea=&sortOrderBy=DESC&keyword=%EC%9A%B4%EC%A0%84%7C%EB%B0%B0%EC%86%A1%7C%EC%9D%B4%EB%8F%99&termSearchGbn=&carrEssYns=&benefitSrchAndOr=O&disableEmpHopeGbn=Y%2CD&actServExcYn=&keywordStaAreaNm=&maxPay=&emailApplyYn=&codeDepth1Info=11000&keywordEtcYn=&regDateStdtParam=&publDutyExcYn=&keywordJobCdSeqNo=&viewType=&exJobsCd=&templateDepthNmInfo=&region=&employGbn=&empTpGbcd=1&computerPreferential=&infaYn=&cloDateStdtParam=&siteClcd=all&searchMode=Y&birthFromYY=&indArea=&careerTypes=&subEmpHopeYn=&tlmgYn=&academicGbn=&templateDepthNoInfo=&foriegn=&entryRoute=&mealOfferClcd=&basicSetupYnChk=&station=&holidayGbn=&srcKeyword=%EC%B2%AD%EC%86%8C%7C%ED%99%98%EA%B2%BD%7C%EB%AF%B8%ED%99%94&academicGbnoEdu=noEdu&enterPriseGbn=&cloTermSearchGbn=&birthToYY=&keywordWantedTitle=Y&stationNm=&benefitGbn=&keywordFlag=&notSrcKeyword=&essCertChk=&depth2SelCode=&keywordBusiNm=&preferentialGbn=&rot3WorkYn=&regDateEndtParam=&pfMatterPreferential=&pageIndex=1&termContractMmcnt=&careerFrom=&laborHrShortYn=#scrollLoc",
+    5: "https://www.work24.go.kr/wk/a/b/1200/retriveDtlEmpSrchList.do?basicSetupYn=&careerTo=&keywordJobCd=&occupation=&seqNo=&cloDateEndtParam=&payGbn=&templateInfo=&rot2WorkYn=&shsyWorkSecd=&resultCnt=10&keywordJobCont=Y&cert=&moreButtonYn=Y&minPay=&codeDepth2Info=11000&currentPageNo=1&eventNo=&mode=&major=&resrDutyExcYn=&eodwYn=&sortField=DATE&staArea=&sortOrderBy=DESC&keyword=%EC%B2%AD%EC%86%8C%7C%ED%99%98%EA%B2%BD%7C%EB%AF%B8%ED%99%94&termSearchGbn=&carrEssYns=&benefitSrchAndOr=O&disableEmpHopeGbn=Y%2CD&actServExcYn=&keywordStaAreaNm=&maxPay=&emailApplyYn=&codeDepth1Info=11000&keywordEtcYn=&regDateStdtParam=&publDutyExcYn=&keywordJobCdSeqNo=&viewType=&exJobsCd=&templateDepthNmInfo=&region=&employGbn=&empTpGbcd=1&computerPreferential=&infaYn=&cloDateStdtParam=&siteClcd=all&searchMode=Y&birthFromYY=&indArea=&careerTypes=&subEmpHopeYn=&tlmgYn=&academicGbn=&templateDepthNoInfo=&foriegn=&entryRoute=&mealOfferClcd=&basicSetupYnChk=&station=&holidayGbn=&srcKeyword=%EC%83%9D%EC%82%B0%7C%EA%B8%B0%EC%88%A0%7C%EC%A0%9C%EC%A1%B0+%EB%B3%B4%EC%A1%B0&academicGbnoEdu=noEdu&enterPriseGbn=&cloTermSearchGbn=&birthToYY=&keywordWantedTitle=Y&stationNm=&benefitGbn=&keywordFlag=&notSrcKeyword=&essCertChk=&depth2SelCode=&keywordBusiNm=&preferentialGbn=&rot3WorkYn=&regDateEndtParam=&pfMatterPreferential=&pageIndex=1&termContractMmcnt=&careerFrom=&laborHrShortYn=#scrollLoc",
+    6: "https://www.work24.go.kr/wk/a/b/1200/retriveDtlEmpSrchList.do?basicSetupYn=&careerTo=&keywordJobCd=&occupation=&seqNo=&cloDateEndtParam=&payGbn=&templateInfo=&rot2WorkYn=&shsyWorkSecd=&resultCnt=10&keywordJobCont=Y&cert=&moreButtonYn=Y&minPay=&codeDepth2Info=11000&currentPageNo=1&eventNo=&mode=&major=&resrDutyExcYn=&eodwYn=&sortField=DATE&staArea=&sortOrderBy=DESC&keyword=%EC%83%9D%EC%82%B0%7C%EA%B8%B0%EC%88%A0%7C%EC%A0%9C%EC%A1%B0+%EB%B3%B4%EC%A1%B0&termSearchGbn=&carrEssYns=&benefitSrchAndOr=O&disableEmpHopeGbn=Y%2CD&actServExcYn=&keywordStaAreaNm=&maxPay=&emailApplyYn=&codeDepth1Info=11000&keywordEtcYn=&regDateStdtParam=&publDutyExcYn=&keywordJobCdSeqNo=&viewType=&exJobsCd=&templateDepthNmInfo=&region=&employGbn=&empTpGbcd=1&computerPreferential=&infaYn=&cloDateStdtParam=&siteClcd=all&searchMode=Y&birthFromYY=&indArea=&careerTypes=&subEmpHopeYn=&tlmgYn=&academicGbn=&templateDepthNoInfo=&foriegn=&entryRoute=&mealOfferClcd=&basicSetupYnChk=&station=&holidayGbn=&srcKeyword=%EC%82%AC%EB%AC%B4%7C%ED%96%89%EC%A0%95%7C%EA%B3%A0%EA%B0%9D+%EC%9D%91%EB%8C%80&academicGbnoEdu=noEdu&enterPriseGbn=&cloTermSearchGbn=&birthToYY=&keywordWantedTitle=Y&stationNm=&benefitGbn=&keywordFlag=&notSrcKeyword=&essCertChk=&depth2SelCode=&keywordBusiNm=&preferentialGbn=&rot3WorkYn=&regDateEndtParam=&pfMatterPreferential=&pageIndex=1&termContractMmcnt=&careerFrom=&laborHrShortYn=#scrollLoc",
+    7: "https://www.work24.go.kr/wk/a/b/1200/retriveDtlEmpSrchList.do?basicSetupYn=&careerTo=&keywordJobCd=&occupation=&seqNo=&cloDateEndtParam=&payGbn=&templateInfo=&rot2WorkYn=&shsyWorkSecd=&resultCnt=10&keywordJobCont=Y&cert=&moreButtonYn=Y&minPay=&codeDepth2Info=11000&currentPageNo=1&eventNo=&mode=&major=&resrDutyExcYn=&eodwYn=&sortField=DATE&staArea=&sortOrderBy=DESC&keyword=%EC%82%AC%EB%AC%B4%7C%ED%96%89%EC%A0%95%7C%EA%B3%A0%EA%B0%9D+%EC%9D%91%EB%8C%80&termSearchGbn=&carrEssYns=&benefitSrchAndOr=O&disableEmpHopeGbn=Y%2CD&actServExcYn=&keywordStaAreaNm=&maxPay=&emailApplyYn=&codeDepth1Info=11000&keywordEtcYn=&regDateStdtParam=&publDutyExcYn=&keywordJobCdSeqNo=&viewType=&exJobsCd=&templateDepthNmInfo=&region=&employGbn=&empTpGbcd=1&computerPreferential=&infaYn=&cloDateStdtParam=&siteClcd=all&searchMode=Y&birthFromYY=&indArea=&careerTypes=&subEmpHopeYn=&tlmgYn=&academicGbn=&templateDepthNoInfo=&foriegn=&entryRoute=&mealOfferClcd=&basicSetupYnChk=&station=&holidayGbn=&srcKeyword=%ED%8C%90%EB%A7%A4%7C%EC%84%9C%EB%B9%84%EC%8A%A4%EC%97%85&academicGbnoEdu=noEdu&enterPriseGbn=&cloTermSearchGbn=&birthToYY=&keywordWantedTitle=Y&stationNm=&benefitGbn=&keywordFlag=&notSrcKeyword=&essCertChk=&depth2SelCode=&keywordBusiNm=&preferentialGbn=&rot3WorkYn=&regDateEndtParam=&pfMatterPreferential=&pageIndex=1&termContractMmcnt=&careerFrom=&laborHrShortYn=#scrollLoc",
+    8: "",
+}
