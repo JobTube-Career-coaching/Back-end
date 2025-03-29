@@ -38,7 +38,7 @@ class DisabilityJobService:
             logger.warning(f"Timeout waiting for element: {value}")
             return None
 
-    def _wait_for_clickable(self, driver, by, value, timeout=10):
+    def _wait_for_clickable(self, driver, by, value, timeout=20):
         try:
             return WebDriverWait(driver, timeout).until(
                 EC.element_to_be_clickable((by, value))
@@ -56,7 +56,6 @@ class DisabilityJobService:
             columns = row.find_elements(By.TAG_NAME, "td")
             data = [col.text.strip() for col in columns]
             
-            # 위치 정보 처리
             location = "위치 정보 없음"
             if len(data) > 1:
                 position_info = data[1].split('\n')
@@ -64,7 +63,6 @@ class DisabilityJobService:
                     location = position_info[-1]
                     data[1] = '\n'.join(position_info[:-1])
 
-            # 링크 처리
             links = row.find_elements(By.TAG_NAME, "a")
             detail_link = next((a.get_attribute("href") for a in links if a.get_attribute("href")), "없음")
 
@@ -82,7 +80,6 @@ class DisabilityJobService:
 
     def _perform_search(self, driver, keyword: str) -> bool:
         try:
-            # 검색어 입력
             search_box = self._wait_for_clickable(driver, By.CSS_SELECTOR, "#srcKeyword")
             if not search_box:
                 raise HTTPException(status_code=500, detail="Search box not found")
@@ -90,18 +87,16 @@ class DisabilityJobService:
             search_box.clear()
             search_box.send_keys(keyword)
 
-            # 장애인 채용 체크박스 선택
             disability_checkbox = self._wait_for_clickable(driver, By.XPATH, '//*[@id="disableEmpHopeGbnParamY"]')
             if disability_checkbox:
                 driver.execute_script("arguments[0].click();", disability_checkbox)
 
-            # 검색 버튼 클릭
-            search_button = self._wait_for_clickable(driver, By.CLASS_NAME, "btn.medium.type01.ht100per.fill")
+            search_button = self._wait_for_clickable(driver, By.CLASS_NAME, "btn.large.type01.fill.wd180px")
             if not search_button:
                 raise HTTPException(status_code=500, detail="Search button not found")
             
             driver.execute_script("arguments[0].click();", search_button)
-            time.sleep(2)  # 검색 결과 로딩 대기
+            time.sleep(2)  
             
             return True
         except Exception as e:
@@ -114,7 +109,6 @@ class DisabilityJobService:
             driver = self._setup_driver()
             driver.get(self.base_url)
             
-            # "더보기" 버튼 처리
             more_btn = self._wait_for_clickable(driver, By.XPATH, '//*[@id="moreBtn"]')
             if more_btn:
                 driver.execute_script("arguments[0].click();", more_btn)
@@ -128,34 +122,32 @@ class DisabilityJobService:
 
             while True:
                 try:
-                    # 로딩 오버레이 사라질 때까지 대기
                     WebDriverWait(driver, 10).until_not(
                         EC.presence_of_element_located((By.CSS_SELECTOR, "div.blockUI.blockOverlay"))
                     )
 
-                    # 결과 테이블 처리
                     results_table = self._wait_for_element(driver, By.CLASS_NAME, "box_table.type_pd24")
                     if not results_table:
                         break
 
-                    # 각 행 처리
                     rows = results_table.find_elements(By.TAG_NAME, "tr")
                     for row in rows:
                         job_data = self._process_job_row(row)
                         if job_data:
                             all_data.append(job_data)
 
-                    # 다음 페이지 처리
-                    next_button_xpath = f"//*[@id='mForm']/div[2]/div/div[2]/div/div/div/button[{page_index}]"
-                    next_button = self._wait_for_clickable(driver, By.XPATH, next_button_xpath)
+                    next_buttons = driver.find_elements(By.XPATH, f"//*[@id='mForm']/div[2]/div/div[2]/div/div/div/button[{page_index}]")
                     
-                    if not next_button:
+                    if not next_buttons:
                         break
                         
-                    driver.execute_script("arguments[0].click();", next_button)
+                    driver.execute_script("arguments[0].click();", next_buttons[0])
                     page_index += 1
                     time.sleep(2)
 
+                except TimeoutException:
+                    logger.warning("Timeout occurred while processing page")
+                    break
                 except Exception as e:
                     logger.error(f"Error processing page: {str(e)}")
                     break

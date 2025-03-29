@@ -8,33 +8,30 @@ from d_job_service import DisabilityJobService
 from fastapi import HTTPException  
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
-from d_sup import scrape_data
+from d_sup import *
 from o_job_service import Old_JobService
 import logging
-import threading
-import time
 from o_sup import *
 from uuid import uuid4
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-app = FastAPI()
-# CORS 설정
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # 환경 변수 로드
 load_dotenv()
 
-
+app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+# CORS 설정
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # 서비스 초기화
 YOUTUBE_API_KEY = "secret"
@@ -188,6 +185,7 @@ async def get_jobs(keyword: str):
     except Exception as e:
         logger.error(f"채용 정보 검색 중 오류: {e.with_traceback()}")
         raise HTTPException(status_code=500, detail=str(e))
+    
 @app.get("/jobs_search_senior")
 async def get_jobs(keyword: str):
     try:
@@ -197,18 +195,31 @@ async def get_jobs(keyword: str):
     except Exception as e:
         logger.error(f"채용 정보 검색 중 오류: {e.with_traceback()}")
         raise HTTPException(status_code=500, detail=str(e))
+    
 @app.get("/jobs_senior")
 async def get_jobs_senior(id:int,keyword: str):
     try:
         if id==8:
-            return RedirectResponse(url="http://localhost:3000/search-frontend")
+            return RedirectResponse(url="http://localhost:3001/search-frontend")
         logger.info(f"채용 정보 검색 시작: {keyword}")
-        url=mode_url_mapping[id]
+        url=o_mode_url_mapping[id]
         job_listings = oldjob_service.get_job_listings_senior(url,keyword)
         return JSONResponse(content={"jobs": job_listings})
     except Exception as e:
         logger.error(f"채용 정보 검색 중 오류: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+    
+@app.get("/jobs_disabled")
+async def get_jobs_disabled(id:int,keyword: str):
+    try:
+        logger.info(f"장애인 채용 정보 검색 시작: {keyword}")
+        url=d_mode_url_mapping[id]
+        job_listings = oldjob_service.get_job_listings_senior(url,keyword)
+        return JSONResponse(content={"jobs": job_listings})
+    except Exception as e:
+        logger.error(f"채용 정보 검색 중 오류: {e}")
+        raise HTTPException(status_code=500, detail=str(e))    
+    
 @app.get("/disability-jobs")
 async def get_disability_jobs(keyword: str):
     try:
@@ -264,54 +275,75 @@ def update_progress(percent, message):
         crawl_status["completed"] = True
 
 # 실제 크롤링 작업을 수행하는 백그라운드 태스크
-def crawl_task():
-    global crawl_status
-    try:
-        # 진행 상황 초기화
-        crawl_status["progress"] = 0
-        crawl_status["status"] = "크롤링 시작"
-        crawl_status["completed"] = False
-        crawl_status["data"] = []
+# def crawl_task():
+#     global crawl_status
+#     try:
+#         # 진행 상황 초기화
+#         crawl_status["progress"] = 0
+#         crawl_status["status"] = "크롤링 시작"
+#         crawl_status["completed"] = False
+#         crawl_status["data"] = []
         
-        # 실제 크롤링 함수 호출 - 진행 콜백 전달
-        data = scrape_data(progress_callback=update_progress)
+#         # 실제 크롤링 함수 호출 - 진행 콜백 전달
+#         data = scrape_data(progress_callback=update_progress)
         
-        # 데이터 저장
-        crawl_status["data"] = data
+#         # 데이터 저장
+#         crawl_status["data"] = data
         
-        # 완료 처리 (scrape_data에서 이미 100%로 설정했을 수 있음)
-        if crawl_status["progress"] != 100:
-            crawl_status["progress"] = 100
-            crawl_status["status"] = "크롤링 완료"
-            crawl_status["completed"] = True
+#         # 완료 처리 (scrape_data에서 이미 100%로 설정했을 수 있음)
+#         if crawl_status["progress"] != 100:
+#             crawl_status["progress"] = 100
+#             crawl_status["status"] = "크롤링 완료"
+#             crawl_status["completed"] = True
             
+#     except Exception as e:
+#         logger.error(f"크롤링 작업 중 오류: {str(e)}")
+#         crawl_status["status"] = f"오류 발생: {str(e)}"
+#         crawl_status["progress"] = -1
+#         crawl_status["completed"] = True
+
+
+# # 크롤링 진행 상황 엔드포인트
+# @app.get("/crawl-progress")
+# def get_crawl_progress():
+#     return crawl_status
+
+# # 크롤링 데이터 엔드포인트 - 진행 중인 데이터 또는 완료된 데이터 반환
+# @app.get("/crawl-data")
+# def get_crawl_data():
+#     return {"data": crawl_status["data"]}
+
+
+
+
+
+def crawl_task_disabled_dynamic(index: int,task_id:str):
+    global crawl_status_disabled
+    try:
+        crawl_status_disabled[task_id] = {"progress": 0, "status": "크롤링 시작", "completed": False, "data": []}
+        target_url = d_mode_url_mapping.get(index, d_mode_url_mapping[1])
+        data = scrape_data_disabled(progress_callback=update_progress_disabled, target_url=target_url)
+        crawl_status_disabled[task_id]["data"] = data
+        if crawl_status_disabled[task_id]["progress"] != 100:
+            crawl_status_disabled[task_id]["progress"] = 100
+            crawl_status_disabled[task_id]["status"] = "크롤링 완료"
+            crawl_status_disabled[task_id]["completed"] = True
     except Exception as e:
-        logger.error(f"크롤링 작업 중 오류: {str(e)}")
-        crawl_status["status"] = f"오류 발생: {str(e)}"
-        crawl_status["progress"] = -1
-        crawl_status["completed"] = True
+        logger.error(f"크롤링 작업 중 오류: {e}")
+        crawl_status_disabled[task_id]["status"] = f"오류 발생: {e}"
+        crawl_status_disabled[task_id]["progress"] = -1
+        crawl_status_disabled[task_id]["completed"] = True
 
-
-# 크롤링 진행 상황 엔드포인트
-@app.get("/crawl-progress")
-def get_crawl_progress():
-    return crawl_status
-
-# 크롤링 데이터 엔드포인트 - 진행 중인 데이터 또는 완료된 데이터 반환
-@app.get("/crawl-data")
-def get_crawl_data():
-    return {"data": crawl_status["data"]}
-
-# 크롤링 시작 엔드포인트
-@app.post("/start-crawling")
-def start_crawling(background_tasks: BackgroundTasks):
-    # 이미 진행 중인지 확인
-    if crawl_status["progress"] > 0 and not crawl_status["completed"]:
-        return {"message": "이미 크롤링이 진행 중입니다."}
+# # 크롤링 시작 엔드포인트
+# @app.post("/start-crawling")
+# def start_crawling(background_tasks: BackgroundTasks):
+#     # 이미 진행 중인지 확인
+#     if crawl_status["progress"] > 0 and not crawl_status["completed"]:
+#         return {"message": "이미 크롤링이 진행 중입니다."}
     
-    # 백그라운드 태스크 시작
-    background_tasks.add_task(crawl_task)
-    return {"message": "크롤링을 시작했습니다."}
+#     # 백그라운드 태스크 시작
+#     background_tasks.add_task(crawl_task)
+#     return {"message": "크롤링을 시작했습니다."}
 
 @app.post("/start-crawling-senior-dynamic")
 def start_crawling_senior_dynamic(
@@ -321,9 +353,24 @@ def start_crawling_senior_dynamic(
 ):
     task_id = str(uuid4())  # 고유 ID 생성
     crawl_status_senior_map[task_id] = create_new_status()
-
+    logger.info(crawl_status_senior_map[task_id])
     background_tasks.add_task(crawl_task_senior_dynamic, id, keyword, task_id)
     return {"message": f"크롤링을 시작했습니다. 모드: {id}", "task_id": task_id}
+
+
+@app.post("/start-crawling-disabled-dynamic")
+def start_crawling_disabled_dynamic(
+   
+    background_tasks: BackgroundTasks,
+    id: int = Query(..., description="크롤링 모드 인덱스 (1~8)"),
+    keyword: str = Query(None)
+):
+    global crawl_status_disabled
+    task_id = str(uuid4())  # 고유 ID 생성
+    crawl_status_disabled[task_id] = create_new_status()
+
+    background_tasks.add_task(crawl_task_disabled_dynamic, id,task_id)
+    return {"message": f"크롤링을 시작했습니다. 모드: {id}","task_id": task_id}
 
 @app.get("/crawl-progress-senior")
 def get_crawl_progress_senior(task_id: str):
@@ -333,20 +380,31 @@ def get_crawl_progress_senior(task_id: str):
 def get_crawl_data_senior(task_id: str):
     status = crawl_status_senior_map.get(task_id)
     if not status:
-        return {"error": "유효하지 않은 task_id예요 😥"}
+        return {"error": "유효하지 않은 task_id예요 "}
     return {"data": status["data"]}
 
-# 이 함수는 분산 불가(분산 시 무한 로딩)!
-# 초반 가능, 이후에 웹드라이버 문제로 인한 오류 발생.
+@app.get("/crawl-progress-disabled")
+def get_crawl_progress_disabled():
+    #logger.info(crawl_status_disabled)
+    return crawl_status_disabled
+
+@app.get("/crawl-data-disabled")
+def get_crawl_data_disabled(task_id: str):
+    status = crawl_status_disabled.get(task_id)
+    if not status:
+        return {"error": "유효하지 않은 task_id예요 "}
+    return {"data": status["data"]}
+
+
 def crawl_task_senior_dynamic(index: int, Keyword=None, task_id=None):
     try:
         status = crawl_status_senior_map[task_id]
         status["status"] = "크롤링 시작"
         target_url =""
         if index != -1:
-            target_url = mode_url_mapping.get(index)
+            target_url = o_mode_url_mapping.get(index)
         else:
-            target_url = f"https://www.work24.go.kr/wk/a/b/1200/retriveDtlEmpSrchList.do?...&srcKeyword={Keyword}"
+            target_url = f"https://www.work24.go.kr/wk/a/b/1200/retriveDtlEmpSrchList.do?&srcKeyword={Keyword}&pageIndex=1"
 
         data = scrape_data_senior(
             progress_callback=lambda p, msg: update_progress_senior(task_id, p, msg),
